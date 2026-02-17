@@ -1,0 +1,34 @@
+services:
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: auth-server-db
+    environment:
+      POSTGRES_DB: auth_server_db
+      POSTGRES_USER: user_chacon
+      POSTGRES_PASSWORD: password123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/01-auth-server-schema.sql:/docker-entrypoint-initdb.d/01-auth-server-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user_chacon -d auth_server_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth-server:
+    build: ./auth-server
+    container_name: central-auth-server
+    ports:
+      - "9000:9000"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-db:5432/auth_server_db
+      - SPRING_DATASOURCE_USERNAME=user_chacon
+      - SPRING_DATASOURCE_PASSWORD=password123
+    depends_on:
+      postgres-db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
