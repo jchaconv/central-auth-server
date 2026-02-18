@@ -2,4 +2,143 @@
 docker-compose up --build -d
 docker logs -f central-auth-server
 
+docker exec -it auth-server-db psql -U user_chacon -d auth_server_db -c "SELECT * FROM oauth2_registered_client;"
 
+curl --location 'http://localhost:9000/oauth2/token' \
+--header 'Authorization: Basic c2VydmljZS1vbmU6c2VjcmV0MQ==' \
+--header 'Content-Type: application/x-www-form-urlencoded' \
+--data-urlencode 'grant_type=client_credentials' \
+--data-urlencode 'scope=read:data'
+
+docker-compose down -v
+docker-compose down --rmi all -v
+
+*********************
+Config de K8s y Helm:
+*********************
+
+.
+├── auth-server (tu código Java)
+├── charts
+│   └── central-auth-server
+│       ├── Chart.yaml
+│       ├── values.yaml
+│       └── templates
+├── sql
+└── docker-compose.yml
+
+
+* Helm usa _helpers.tpl para manejar nombres y etiquetas. Para que estos archivos funcionen,
+  ejecuta este comando en tu carpeta de chart:
+
+    - helm create temp-chart
+
+# Ejecuta estos comandos desde /home/jchaconv/central-auth-server
+# Copiar el archivo usando la ruta real según tu árbol de directorios
+    - cp charts/temp-chart/templates/_helpers.tpl charts/central-auth-server/templates/
+
+# Eliminar la carpeta temporal que ya no necesitamos
+    - rm -rf charts/temp-chart
+
+* saldrá error porque el helper tiene "temp-chart" y debe ser cambiado:
+    - sed -i 's/temp-chart/central-auth-server/g' charts/central-auth-server/templates/_helpers.tpl
+
+* para validar archivos:
+    - helm lint charts/central-auth-server
+
+# 1. Compila el JAR de tu aplicación (saltando tests para ir rápido)
+    - cd auth-server
+    - chmod +x mvnw
+    - ./mvnw clean package -DskipTests
+
+# 2. Construye la imagen de Docker
+# Usaremos el nombre que pusiste en el values.yaml
+    - docker build -t jchacon/central-auth-server:latest .
+
+# Crear cluster de K8s con Kind
+    - kind create cluster --name auth-cluster --config kind-config.yaml
+    - kind delete cluster --name auth-cluster
+
+# Cargar manualmente la imagen a Kind
+    - docker pull postgres:15-alpine
+    - kind load docker-image jchacon/central-auth-server:latest --name auth-cluster
+    - kind load docker-image postgres:15-alpine --name auth-cluster
+
+
+* Hacer el deploy con Helm:
+
+    # 1. Empaqueta tu app (asumiendo que ya hiciste el docker build)
+    # 2. Prueba de "dry-run" para ver si el YAML generado es correcto (SIMULACION)
+    # ubicarse en raiz
+        - helm install central-auth-server ./charts/central-auth-server --dry-run --debug
+
+    # elminar rastro previo de seguridad
+        - helm uninstall central-auth-server 2>/dev/null
+    
+    # 3. Despliegue real
+        - helm install central-auth-server ./charts/central-auth-server
+
+* Ver recursos
+    - kubectl get all
+
+* logs de inicio
+    - kubectl logs -f deployment/central-auth-server
+
+* pruebas database
+    - kubectl exec -it auth-server-db-0 -- bash
+    - psql -U user_chacon -d auth_server_db
+    - kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db    ---> todo en una sola línea
+    - \dt   ---> listar tablas
+    - \d oauth2_registered_client  ---> estructura
+    - SELECT * FROM oauth2_registered_client;
+    - \q
+
+# Si estoy haciendo correcciones en archivos y ya ejecuté el install
+    - helm uninstall central-auth-server 2>/dev/null
+
+# probar obtener token
+    - hacer tunnel:
+    kubectl port-forward svc/central-auth-server 9000:9000
+
+    - confirmar datos:
+    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "SELECT client_id, client_name FROM oauth2_registered_client;"
+
+    - corroborar lo guardado:
+    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "SELECT client_secret FROM oauth2_registered_client WHERE client_id='service-one';"
+
+    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "UPDATE oauth2_registered_client SET client_secret = '{noop}secret' WHERE client_id = 'service-one';"
+
+    # necesario esta vez por el entorno:
+    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "UPDATE oauth2_registered_client SET client_secret = '\$2a\$10\$iUyxnBcy996g6SAWUmz.9eshpD6IIh0ryssoyEkLzmhjgsOV5NrJ.' WHERE client_id = 'service-one';"
+
+    - ejecutar:
+    curl -X POST http://localhost:9000/oauth2/token \
+     -u "service-one:secret1" \
+     -d "grant_type=client_credentials" \
+     -d "scope=read:data"
+
+# para terminar todo:
+    - helm uninstall central-auth-server
+    - kubectl delete pvc postgres-pvc
+
+
+# Forzar a Kubernetes a reintentar el arranque
+kubectl rollout restart deployment central-auth-server
+kubectl rollout restart statefulset auth-server-db
+
+kubectl describe pod auth-server-db-0
+
+helm uninstall central-auth-server
+
+
+kubectl logs auth-server-db-0
+kubectl logs -f deployment/central-auth-server
+
+# Cuando un pod no levanta bien
+kubectl describe pod auth-server-db-0
+
+#Aplicando fix: Actualiza el archivo database.yaml
+#con el cambio de la key: "init-db.sql".
+#Reinstala el Chart (es la forma más limpia de forzar el refresco del montaje):
+helm uninstall central-auth-server
+helm install central-auth-server ./charts/central-auth-server

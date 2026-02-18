@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "central-auth-server.fullname" . }}
+  labels:
+    {{- include "central-auth-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      # El selector debe tener una indentación de 6 espacios para estar bajo matchLabels
+      {{- include "central-auth-server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        # Las etiquetas del pod deben tener una indentación de 8 espacios
+        {{- include "central-auth-server.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: {{ .Values.database.url | quote }}
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "central-auth-server.fullname" . }}-db-secret
+                  key: db-username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "central-auth-server.fullname" . }}-db-secret
+                  key: db-password
+            - name: AUTH_ISSUER_URL
+              # En Cloud, aquí pondrás la URL real (ej: https://auth.tu-banco.com)
+              value: {{ .Values.auth.issuerUrl | default "http://localhost:9000" | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

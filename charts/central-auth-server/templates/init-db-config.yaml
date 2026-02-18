@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "central-auth-server.fullname" . }}-init-sql
+data:
+  # Helm leerá el archivo externo y lo pondrá aquí dinámicamente
+  init-db.sql: |-
+{{ .Files.Get "scripts/01-auth-server-schema.sql" | indent 4 }}

@@ -1,0 +1,28 @@
+replicaCount: 1
+
+image:
+  repository: jchacon/central-auth-server
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+service:
+  type: ClusterIP
+  port: 9000
+
+# Database Configuration (mapped from application.properties)
+database:
+  url: "jdbc:postgresql://auth-server-db:5432/auth_server_db"
+  username: "user_chacon"
+  # In a real scenario, password should be in a Secret, not here.
+  password: "password123"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+auth:
+  issuerUrl: http://localhost:9000

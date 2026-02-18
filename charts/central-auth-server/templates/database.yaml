@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: auth-server-db
+spec:
+  # El serviceName debe coincidir con el nombre del Service definido abajo
+  serviceName: "auth-server-db"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              # Extrae el nombre de la DB de la URL: jdbc:postgresql://host:port/db_name
+              value: {{ .Values.database.url | splitList "/" | last | quote }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "central-auth-server.fullname" . }}-db-secret
+                  key: db-username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "central-auth-server.fullname" . }}-db-secret
+                  key: db-password
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: init-script-volume
+              mountPath: /docker-entrypoint-initdb.d/
+      volumes:
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: init-script-volume
+          configMap:
+            # Asegúrate que este nombre coincida con el metadata.name de tu configmap.yaml
+            name: {{ include "central-auth-server.fullname" . }}-init-sql
+            items:
+              # "key" es el nombre dentro del ConfigMap, "path" es cómo se verá en el contenedor
+              - key: "init-db.sql"
+                path: "01-auth-server-schema.sql"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-server-db
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+  selector:
+    app: postgres
