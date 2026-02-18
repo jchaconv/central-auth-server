@@ -100,17 +100,6 @@ Config de K8s y Helm:
     - hacer tunnel:
     kubectl port-forward svc/central-auth-server 9000:9000
 
-    - confirmar datos:
-    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "SELECT client_id, client_name FROM oauth2_registered_client;"
-
-    - corroborar lo guardado:
-    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "SELECT client_secret FROM oauth2_registered_client WHERE client_id='service-one';"
-
-    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "UPDATE oauth2_registered_client SET client_secret = '{noop}secret' WHERE client_id = 'service-one';"
-
-    # necesario esta vez por el entorno:
-    kubectl exec -it auth-server-db-0 -- psql -U user_chacon -d auth_server_db -c "UPDATE oauth2_registered_client SET client_secret = '\$2a\$10\$iUyxnBcy996g6SAWUmz.9eshpD6IIh0ryssoyEkLzmhjgsOV5NrJ.' WHERE client_id = 'service-one';"
-
     - ejecutar:
     curl -X POST http://localhost:9000/oauth2/token \
      -u "service-one:secret1" \
